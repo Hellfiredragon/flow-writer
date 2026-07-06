@@ -36,8 +36,7 @@ interface Session {
 	prompt: string;
 	candidates: Candidate[];
 	abort: AbortController;
-	idleTimer: ReturnType<typeof setInterval> | null;
-	deepening: boolean;
+	idleTimer: ReturnType<typeof setTimeout> | null;
 }
 
 /**
@@ -80,7 +79,6 @@ export class SuggestionController {
 			candidates: [],
 			abort: new AbortController(),
 			idleTimer: null,
-			deepening: false,
 		};
 		this.session = session;
 
@@ -103,7 +101,7 @@ export class SuggestionController {
 		if (!s) return;
 		this.session = null;
 		s.abort.abort();
-		if (s.idleTimer !== null) clearInterval(s.idleTimer);
+		if (s.idleTimer !== null) clearTimeout(s.idleTimer);
 		this.renderer.clear();
 	}
 
@@ -151,17 +149,23 @@ export class SuggestionController {
 		this.startIdle(session);
 	}
 
+	/**
+	 * Sequential pacing: the next deepening round is scheduled only after
+	 * the previous one has fully returned, so the cadence is
+	 * "wait for earlier requests + idle interval" — the server is never
+	 * flooded with overlapping rounds.
+	 */
 	private startIdle(session: Session): void {
 		if (session.candidates.every((c) => c.done)) return;
-		session.idleTimer = setInterval(() => {
+		session.idleTimer = setTimeout(() => {
+			session.idleTimer = null;
 			void this.deepen(session);
 		}, this.options().idleIntervalMs);
 	}
 
 	/** Grow every unfinished candidate by exactly one word (hard rule 3). */
 	private async deepen(session: Session): Promise<void> {
-		if (!this.isLive(session) || session.deepening) return;
-		session.deepening = true;
+		if (!this.isLive(session)) return;
 		const opts = this.options();
 		await Promise.all(
 			session.candidates.map(async (cand) => {
@@ -188,15 +192,8 @@ export class SuggestionController {
 				if (depth >= opts.maxDepth || endsSentence(next)) cand.done = true;
 			}),
 		);
-		session.deepening = false;
 		if (!this.isLive(session)) return;
 		this.renderer.render(session.candidates);
-		if (
-			session.candidates.every((c) => c.done) &&
-			session.idleTimer !== null
-		) {
-			clearInterval(session.idleTimer);
-			session.idleTimer = null;
-		}
+		this.startIdle(session);
 	}
 }

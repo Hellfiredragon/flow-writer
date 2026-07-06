@@ -43,6 +43,7 @@ A local writing assistant that keeps a novelist in flow. It never writes for the
 - **Staleness via session id.** Every async continuation re-checks `session.id === current.id` before touching state or rendering; AbortController cancels the fetches themselves.
 - **Word completion = greedy continuation.** llama tokens are fragments; each top token is completed by a temperature-0 continuation, cut at the first whitespace boundary. Duplicates merged, capped at N.
 - **Deepening reuses the same continuation call** with prompt = prefix + candidate text; a candidate is `done` at max depth, sentence end (`.?!`), or when the model yields no word.
+- **Deepening is paced sequentially, not on a fixed interval.** The next round is scheduled (setTimeout) only after the previous round's requests have all returned: cadence = previous round duration + idle interval. The local server never sees overlapping rounds.
 - **Prompt = last 4000 chars before cursor** — bounds latency and cache keys.
 - **Cache stores live candidate arrays** (LRU 32), so revisiting a position restores the deepened state instantly.
 - **Strip is a fixed-position overlay** appended to the view DOM, repositioned on geometry changes — it never reflows the document (hard rule 5). Deepening mutates candidate text nodes in place; order never changes.

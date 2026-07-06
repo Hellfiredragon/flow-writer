@@ -179,6 +179,26 @@ describe('SuggestionController', () => {
 		expect(client.continueCalls).toBe(calls);
 	});
 
+	it('paces deepening sequentially: next round = previous round + interval', async () => {
+		client.continuations.set('France', ' is big');
+		client.continuations.set('France is', ' big');
+		controller.trigger('I love ');
+		await flush();
+
+		client.delayMs = 700; // each deepening round now takes 700ms
+		await vi.advanceTimersByTimeAsync(opts.idleIntervalMs); // t=1000: round 1 starts
+		const callsAtRound1 = client.continueCalls;
+		expect(callsAtRound1).toBeGreaterThan(0);
+
+		// t=2000: round 1 finished at t=1700, round 2 is due at t=2700 — not yet.
+		await vi.advanceTimersByTimeAsync(1000);
+		expect(client.continueCalls).toBe(callsAtRound1);
+
+		// t=2800: past t=2700, round 2 has started.
+		await vi.advanceTimersByTimeAsync(800);
+		expect(client.continueCalls).toBeGreaterThan(callsAtRound1);
+	});
+
 	it('serves repeated prompts from cache, preserving deepened state', async () => {
 		client.continuations.set('France', ' is');
 		controller.trigger('I love ');
