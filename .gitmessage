@@ -1,0 +1,28 @@
+feat(flow-writer): implement local next-word suggestion strip
+
+Replace the sample plugin with Flow Writer, a local writing assistant
+backed by a llama.cpp server (raw /completion, base model, no template).
+
+- src/llama.ts: /completion client + pure helpers; top-token probe
+  (n_predict:1, n_probs) and greedy continuation used to complete token
+  fragments into whole words and to deepen candidates. Tolerates old and
+  new llama-server response shapes. window.fetch for AbortSignal support.
+- src/controller.ts: SuggestionController — single live session with
+  id-guarded staleness checks, AbortController per beat, LRU prompt
+  cache (preserves deepened state), idle deepening one word per tick,
+  stops at max depth / sentence end / dry model. DOM-free, fully tested.
+- src/strip.ts: quiet fixed-position overlay strip below the cursor
+  line; updates candidate text nodes in place, never reflows the doc.
+- src/main.ts: CM6 update listener detects typed trigger chars, clears
+  on any other edit/cursor move/blur; Alt+1..0 and click pick; pick
+  inserts word + trailing space and naturally re-triggers; Escape
+  dismisses. Only the focused editor owns a strip.
+- src/settings.ts: endpoint, trigger chars, idle interval, max depth,
+  candidate count.
+- tests/: 20 vitest cases covering parsing, word completion, one-beat
+  lifetime, abort safety, deepening, cache LRU, unreachable server.
+- chore: manifest/package renamed to flow-writer, vitest added,
+  CLAUDE.md with hard rules and key design decisions.
+
+Note: origin still points at obsidianmd/obsidian-sample-plugin; push
+skipped until a proper remote exists.

@@ -1,114 +1,154 @@
-import {
-	Editor,
-	MarkdownView,
-	MarkdownFileInfo,
-	Modal,
-	Notice,
-	Plugin,
-} from 'obsidian';
+import { Plugin } from 'obsidian';
+import { Prec } from '@codemirror/state';
+import { EditorView, ViewUpdate, keymap } from '@codemirror/view';
 import {
 	DEFAULT_SETTINGS,
-	MyPluginSettings,
-	SampleSettingTab,
+	FlowWriterSettings,
+	FlowWriterSettingTab,
 } from './settings';
+import { LlamaClient } from './llama';
+import {
+	DEFAULT_CONTROLLER_OPTIONS,
+	SuggestionController,
+} from './controller';
+import { StripView } from './strip';
 
-// Remember to rename these classes and interfaces!
-
-export default class MyPlugin extends Plugin {
-	settings!: MyPluginSettings;
+export default class FlowWriterPlugin extends Plugin {
+	settings!: FlowWriterSettings;
+	private controller!: SuggestionController;
+	private strip!: StripView;
+	/** The one editor view that owns the live strip (hard rules 2 & robustness). */
+	private activeView: EditorView | null = null;
 
 	async onload() {
 		await this.loadSettings();
+		this.addSettingTab(new FlowWriterSettingTab(this.app, this));
 
-		// This creates an icon in the left ribbon.
-		this.addRibbonIcon('dice', 'Sample', (_evt: MouseEvent) => {
-			// Called when the user clicks the icon.
-			new Notice('This is a notice!');
-		});
-
-		// This adds a status bar item to the bottom of the app. Does not work on mobile apps.
-		const statusBarItemEl = this.addStatusBarItem();
-		statusBarItemEl.setText('Status bar text');
-
-		// This adds a simple command that can be triggered anywhere
-		this.addCommand({
-			id: 'open-modal-simple',
-			name: 'Open modal (simple)',
-			callback: () => {
-				new SampleModal(this.app).open();
+		this.strip = new StripView({
+			getAnchor: () => {
+				const view = this.activeView;
+				if (!view) return null;
+				const coords = view.coordsAtPos(view.state.selection.main.head);
+				return coords
+					? { left: coords.left, bottom: coords.bottom }
+					: null;
 			},
+			onPick: (i) => this.pick(i),
 		});
-		// This adds an editor command that can perform some operation on the current editor instance
-		this.addCommand({
-			id: 'replace-selected',
-			name: 'Replace selected content',
-			editorCallback: (
-				editor: Editor,
-				_ctx: MarkdownView | MarkdownFileInfo,
-			) => {
-				editor.replaceSelection('Sample editor command');
-			},
-		});
-		// This adds a complex command that can check whether the current state of the app allows execution of the command
-		this.addCommand({
-			id: 'open-modal-complex',
-			name: 'Open modal (complex)',
-			checkCallback: (checking: boolean) => {
-				// Conditions to check
-				const markdownView =
-					this.app.workspace.getActiveViewOfType(MarkdownView);
-				if (markdownView) {
-					// If checking is true, we're simply "checking" if the command can be run.
-					// If checking is false, then we want to actually perform the operation.
-					if (!checking) {
-						new SampleModal(this.app).open();
-					}
-
-					// This command will only show up in Command Palette when the check function returns true
-					return true;
-				}
-				return false;
-			},
-		});
-
-		// This adds a settings tab so the user can configure various aspects of the plugin
-		this.addSettingTab(new SampleSettingTab(this.app, this));
-
-		// If the plugin hooks up any global DOM events (on parts of the app that doesn't belong to this plugin)
-		// Using this function will automatically remove the event listener when this plugin is disabled.
-		this.registerDomEvent(activeDocument, 'click', (_evt: MouseEvent) => {
-			new Notice('Click');
-		});
-
-		// When registering intervals, this function will automatically clear the interval when the plugin is disabled.
-		this.registerInterval(
-			window.setInterval(() => console.log('setInterval'), 5 * 60 * 1000),
+		this.controller = new SuggestionController(
+			new LlamaClient(() => this.settings.endpoint),
+			this.strip,
+			() => ({
+				...DEFAULT_CONTROLLER_OPTIONS,
+				maxCandidates: this.settings.maxCandidates,
+				maxDepth: this.settings.maxDepth,
+				idleIntervalMs: this.settings.idleIntervalMs,
+			}),
 		);
+
+		this.registerEditorExtension([
+			EditorView.updateListener.of((update) => this.onUpdate(update)),
+			Prec.highest(keymap.of(this.buildKeymap())),
+		]);
 	}
 
-	onunload() {}
+	onunload() {
+		this.controller.clear();
+	}
+
+	private buildKeymap() {
+		const bindings = [];
+		for (let slot = 0; slot < 10; slot++) {
+			bindings.push({
+				key: `Alt-${(slot + 1) % 10}`,
+				run: (view: EditorView) => {
+					if (view !== this.activeView || !this.controller.active) {
+						return false;
+					}
+					return this.pick(slot);
+				},
+			});
+		}
+		bindings.push({
+			key: 'Escape',
+			run: (view: EditorView) => {
+				if (view !== this.activeView || !this.controller.active) {
+					return false;
+				}
+				this.controller.clear();
+				return true;
+			},
+		});
+		return bindings;
+	}
+
+	private onUpdate(update: ViewUpdate): void {
+		const view = update.view;
+		if (update.docChanged) {
+			// Any edit ends the beat; a user-typed trigger char starts a new one.
+			if (view === this.activeView || this.activeView === null) {
+				this.handleEdit(update);
+			}
+			return;
+		}
+		if (view !== this.activeView) return;
+		if (update.focusChanged && !view.hasFocus) {
+			this.controller.clear();
+			return;
+		}
+		if (update.selectionSet) {
+			// Cursor moved without an edit: discard (hard rule 2).
+			this.controller.clear();
+			return;
+		}
+		if (update.geometryChanged) this.strip.reposition();
+	}
+
+	private handleEdit(update: ViewUpdate): void {
+		this.controller.clear();
+		this.activeView = null;
+		const view = update.view;
+		if (!view.hasFocus) return;
+		const isTyping = update.transactions.some((tr) =>
+			tr.isUserEvent('input.type'),
+		);
+		if (!isTyping) return;
+		const sel = view.state.selection.main;
+		if (!sel.empty) return;
+		const head = sel.head;
+		if (head === 0) return;
+		const lastChar = view.state.sliceDoc(head - 1, head);
+		if (!this.settings.triggerChars.includes(lastChar)) return;
+		this.activeView = view;
+		this.controller.trigger(view.state.sliceDoc(0, head));
+	}
+
+	/** Insert candidate `slot` plus a trailing space; the insertion itself
+	 *  retriggers prediction like any typed space (never automatic — rule 1). */
+	private pick(slot: number): boolean {
+		const view = this.activeView;
+		const word = this.controller.candidateAt(slot);
+		if (!view || word === null) return false;
+		const head = view.state.selection.main.head;
+		const insert = `${word} `;
+		view.dispatch({
+			changes: { from: head, insert },
+			selection: { anchor: head + insert.length },
+			userEvent: 'input.type',
+		});
+		view.focus();
+		return true;
+	}
 
 	async loadSettings() {
 		this.settings = Object.assign(
 			{},
 			DEFAULT_SETTINGS,
-			(await this.loadData()) as Partial<MyPluginSettings>,
+			(await this.loadData()) as Partial<FlowWriterSettings>,
 		);
 	}
 
 	async saveSettings() {
 		await this.saveData(this.settings);
-	}
-}
-
-class SampleModal extends Modal {
-	onOpen() {
-		const { contentEl } = this;
-		contentEl.setText('Woah!');
-	}
-
-	onClose() {
-		const { contentEl } = this;
-		contentEl.empty();
 	}
 }
