@@ -4,7 +4,7 @@ import {
 	StripRenderer,
 	SuggestionController,
 } from '../src/controller';
-import { Candidate, CompletionClient } from '../src/llama';
+import { Candidate, CompletionClient, TokenProb } from '../src/llama';
 
 /**
  * Fake llama client. Top tokens are whole words prefixed with a space
@@ -17,14 +17,18 @@ class FakeClient implements CompletionClient {
 	aborted: AbortSignal[] = [];
 	/** prompt suffix after base -> continuation returned */
 	continuations = new Map<string, string>();
-	tokens: string[] = [' France', ' the', ' a'];
+	tokens: TokenProb[] = [
+		{ token: ' France', prob: 0.5 },
+		{ token: ' the', prob: 0.3 },
+		{ token: ' a', prob: 0.2 },
+	];
 	delayMs = 0;
 
 	async topTokens(
 		_prompt: string,
 		_n: number,
 		signal: AbortSignal,
-	): Promise<string[]> {
+	): Promise<TokenProb[]> {
 		this.topTokensCalls++;
 		this.aborted.push(signal);
 		await this.wait(signal);
@@ -88,7 +92,7 @@ describe('SuggestionController', () => {
 		await vi.advanceTimersByTimeAsync(0);
 	}
 
-	it('trigger fetches, completes words, and renders once', async () => {
+	it('trigger fetches, completes words, renders sorted by probability', async () => {
 		controller.trigger('Once upon a time in ');
 		await flush();
 		expect(renderer.last?.map((c) => c.text)).toEqual([
@@ -96,9 +100,24 @@ describe('SuggestionController', () => {
 			'the',
 			'a',
 		]);
+		expect(renderer.last?.map((c) => c.prob)).toEqual([0.5, 0.3, 0.2]);
 		expect(controller.active).toBe(true);
 		expect(controller.candidateAt(0)).toBe('France');
 		expect(controller.candidateAt(9)).toBeNull();
+	});
+
+	it('drops candidates below the probability cutoff', async () => {
+		client.tokens = [
+			{ token: ' France', prob: 0.6 },
+			{ token: ' the', prob: 0.05 },
+			{ token: ' 나를', prob: 0.004 },
+		];
+		controller.trigger('Joe walks on the street, when ');
+		await flush();
+		expect(renderer.last?.map((c) => c.text)).toEqual(['France', 'the']);
+		// The sub-1% token never even costs a completion request:
+		// 1 request per kept candidate only.
+		expect(client.continueCalls).toBe(2);
 	});
 
 	it('never triggers on whitespace-only prompts', async () => {
@@ -108,11 +127,27 @@ describe('SuggestionController', () => {
 		expect(controller.active).toBe(false);
 	});
 
-	it('merges duplicate completed words', async () => {
-		client.tokens = [' the', ' the', ' a'];
+	it('merges duplicate completed words, summing their probabilities', async () => {
+		client.tokens = [
+			{ token: ' the', prob: 0.3 },
+			{ token: ' the', prob: 0.25 },
+			{ token: ' a', prob: 0.2 },
+		];
 		controller.trigger('text ');
 		await flush();
 		expect(renderer.last?.map((c) => c.text)).toEqual(['the', 'a']);
+		expect(renderer.last?.[0]?.prob).toBeCloseTo(0.55);
+	});
+
+	it('resorts after merging when summed duplicates overtake the leader', async () => {
+		client.tokens = [
+			{ token: ' France', prob: 0.3 },
+			{ token: ' the', prob: 0.25 },
+			{ token: ' the', prob: 0.2 },
+		];
+		controller.trigger('text ');
+		await flush();
+		expect(renderer.last?.map((c) => c.text)).toEqual(['the', 'France']);
 	});
 
 	it('clear aborts in-flight requests and stale results never render', async () => {
@@ -136,6 +171,20 @@ describe('SuggestionController', () => {
 		expect(client.aborted[0]?.aborted).toBe(true);
 		expect(renderer.rendered.length).toBe(1);
 		expect(controller.active).toBe(true);
+	});
+
+	it('maxDepth 1 disables idle deepening entirely', async () => {
+		controller = new SuggestionController(client, renderer, () => ({
+			...opts,
+			maxDepth: 1,
+		}));
+		controller.trigger('I love ');
+		await flush();
+		expect(renderer.last?.every((c) => c.done)).toBe(true);
+		const calls = client.continueCalls;
+		await vi.advanceTimersByTimeAsync(opts.idleIntervalMs * 5);
+		expect(client.continueCalls).toBe(calls);
+		expect(renderer.last?.[0]?.text).toBe('France');
 	});
 
 	it('deepens each candidate by one word per idle tick, in place', async () => {

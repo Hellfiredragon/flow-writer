@@ -1,12 +1,21 @@
-fix(controller): pace idle deepening sequentially
+feat(candidates): probability-sorted strip with cutoff; deepening off by default
 
-Replace the fixed setInterval with a setTimeout chain: the next
-deepening round is scheduled only after all requests of the previous
-round have returned. Cadence = previous round duration + idle interval,
-so a slow local server never accumulates overlapping rounds. The
-`deepening` re-entrancy flag is now unnecessary and removed.
+- llama.ts: parseTopTokens now returns {token, prob} sorted descending
+  (handles prob and logprob fields); mergeCandidates merges duplicate
+  words by summing probabilities and re-sorts.
+- controller.ts: tokens below the probability cutoff (setting, default
+  1%) are dropped before any completion request is spent; Candidate
+  carries prob end to end. Default maxDepth is now 1 = idle deepening
+  disabled until the single-word flow is tuned.
+- strip.ts/styles.css: candidates render vertically, one per line, with
+  the probability in brackets, e.g. "France (36%)"; sub-1% shows (<1%).
+- settings.ts: new "Probability cutoff" slider; Max depth documents
+  that 1 disables deepening.
+- tests: unit suite updated for weighted candidates (25 cases), plus
+  opt-in live integration tests (tests/llama-live.test.ts) that hit a
+  real llama-server when LLAMA_ENDPOINT is set and log actual top
+  tokens/completions for debugging model output.
 
-- test: new case asserting round N+1 starts only after round N
-  completed plus the idle interval (21 tests total).
-- chore: origin now points at Hellfiredragon/flow-writer.
-- docs: CLAUDE.md key design decision added for sequential pacing.
+Live test against localhost:8081 shows the Korean-garbage issue is the
+model, not the plugin: gemma-4-26B-A4B-it (an instruct tune) puts 36%
+on Korean tokens for an English prompt. A base model is required.

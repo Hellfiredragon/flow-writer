@@ -6,17 +6,20 @@ export interface FlowWriterSettings {
 	/** Characters that trigger a prediction when typed. */
 	triggerChars: string;
 	idleIntervalMs: number;
-	/** Max words per candidate. */
+	/** Max words per candidate; 1 disables idle deepening entirely. */
 	maxDepth: number;
 	maxCandidates: number;
+	/** Drop candidates whose token probability is below this (percent). */
+	minProbPercent: number;
 }
 
 export const DEFAULT_SETTINGS: FlowWriterSettings = {
 	endpoint: 'http://127.0.0.1:8080',
 	triggerChars: ' .,;:!?—-"\')\n',
 	idleIntervalMs: 1000,
-	maxDepth: 5,
+	maxDepth: 1,
 	maxCandidates: 10,
+	minProbPercent: 1,
 };
 
 export class FlowWriterSettingTab extends PluginSettingTab {
@@ -73,13 +76,28 @@ export class FlowWriterSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('Max depth')
-			.setDesc('Maximum words a candidate can grow to while idle.')
+			.setDesc(
+				'Maximum words a candidate can grow to while idle. 1 disables idle deepening.',
+			)
 			.addSlider((slider) =>
 				slider
 					.setLimits(1, 12, 1)
 					.setValue(this.plugin.settings.maxDepth)
 					.onChange(async (value) => {
 						this.plugin.settings.maxDepth = value;
+						await this.plugin.saveSettings();
+					}),
+			);
+
+		new Setting(containerEl)
+			.setName('Probability cutoff')
+			.setDesc('Hide candidates below this probability (percent).')
+			.addSlider((slider) =>
+				slider
+					.setLimits(0, 10, 1)
+					.setValue(this.plugin.settings.minProbPercent)
+					.onChange(async (value) => {
+						this.plugin.settings.minProbPercent = value;
 						await this.plugin.saveSettings();
 					}),
 			);

@@ -1,6 +1,7 @@
 import {
 	Candidate,
 	CompletionClient,
+	WeightedWord,
 	completeWord,
 	endsSentence,
 	mergeCandidates,
@@ -21,14 +22,17 @@ export interface ControllerOptions {
 	/** Prompt = at most this many chars before the cursor. */
 	contextChars: number;
 	cacheSize: number;
+	/** Candidates whose seed-token probability is below this are dropped. */
+	minProb: number;
 }
 
 export const DEFAULT_CONTROLLER_OPTIONS: ControllerOptions = {
 	maxCandidates: 10,
-	maxDepth: 5,
+	maxDepth: 1,
 	idleIntervalMs: 1000,
 	contextChars: 4000,
 	cacheSize: 32,
+	minProb: 0.01,
 };
 
 interface Session {
@@ -111,7 +115,7 @@ export class SuggestionController {
 
 	private async fetchInitial(session: Session): Promise<void> {
 		const opts = this.options();
-		let words: string[];
+		let words: WeightedWord[];
 		try {
 			const tokens = await this.client.topTokens(
 				session.prompt,
@@ -119,14 +123,18 @@ export class SuggestionController {
 				session.abort.signal,
 			);
 			if (!this.isLive(session)) return;
+			// Cut the low-probability tail before spending completion requests.
+			const kept = tokens.filter((t) => t.prob >= opts.minProb);
 			words = await Promise.all(
-				tokens.map((tok) =>
+				kept.map((t) =>
 					completeWord(
 						this.client,
 						session.prompt,
-						tok,
+						t.token,
 						session.abort.signal,
-					).catch(() => ''),
+					)
+						.then((word) => ({ word, prob: t.prob }))
+						.catch(() => ({ word: '', prob: 0 })),
 				),
 			);
 		} catch {
@@ -136,9 +144,10 @@ export class SuggestionController {
 		if (!this.isLive(session)) return;
 		const merged = mergeCandidates(words, opts.maxCandidates);
 		if (merged.length === 0) return;
-		session.candidates = merged.map((text) => ({
-			text,
-			done: endsSentence(text) || opts.maxDepth <= 1,
+		session.candidates = merged.map(({ word, prob }) => ({
+			text: word,
+			prob,
+			done: endsSentence(word) || opts.maxDepth <= 1,
 		}));
 		this.cache.set(session.prompt, session.candidates);
 		if (this.cache.size > opts.cacheSize) {

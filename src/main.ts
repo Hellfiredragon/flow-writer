@@ -43,6 +43,7 @@ export default class FlowWriterPlugin extends Plugin {
 				maxCandidates: this.settings.maxCandidates,
 				maxDepth: this.settings.maxDepth,
 				idleIntervalMs: this.settings.idleIntervalMs,
+				minProb: this.settings.minProbPercent / 100,
 			}),
 		);
 

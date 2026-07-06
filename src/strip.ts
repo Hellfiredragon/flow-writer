@@ -36,6 +36,7 @@ export class StripView implements StripRenderer {
 					text: String((i + 1) % 10),
 				});
 				slot.createSpan({ cls: 'flow-writer-word' });
+				slot.createSpan({ cls: 'flow-writer-prob' });
 				slot.addEventListener('mousedown', (evt) => {
 					evt.preventDefault();
 					this.host.onPick(i);
@@ -45,6 +46,14 @@ export class StripView implements StripRenderer {
 			const word = slot.querySelector('.flow-writer-word');
 			if (word && word.textContent !== cand.text) {
 				word.textContent = cand.text;
+			}
+			const prob = slot.querySelector('.flow-writer-prob');
+			if (prob) {
+				const pct =
+					cand.prob >= 0.01
+						? `(${Math.round(cand.prob * 100)}%)`
+						: '(<1%)';
+				if (prob.textContent !== pct) prob.textContent = pct;
 			}
 		});
 		this.reposition();

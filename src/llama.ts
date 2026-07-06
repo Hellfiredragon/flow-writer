@@ -6,15 +6,24 @@
 export interface Candidate {
 	/** Whole words accumulated so far, joined by single spaces. */
 	text: string;
+	/** Probability of the seed token (duplicate words merged by summing). */
+	prob: number;
 	/** No further deepening (max depth, sentence end, or model dried up). */
 	done: boolean;
 }
 
+export interface TokenProb {
+	token: string;
+	/** Probability in [0, 1]. */
+	prob: number;
+}
+
 /**
- * Extract the top-N next-token strings from a llama-server /completion
- * response, tolerating the several field layouts llama.cpp has shipped.
+ * Extract the top-N next tokens with probabilities from a llama-server
+ * /completion response, tolerating the several field layouts llama.cpp
+ * has shipped. Result is sorted by probability, descending.
  */
-export function parseTopTokens(json: unknown, n: number): string[] {
+export function parseTopTokens(json: unknown, n: number): TokenProb[] {
 	const root = json as Record<string, unknown>;
 	const cp = root?.completion_probabilities;
 	if (!Array.isArray(cp) || cp.length === 0) return [];
@@ -23,13 +32,19 @@ export function parseTopTokens(json: unknown, n: number): string[] {
 		| Array<Record<string, unknown>>
 		| undefined;
 	if (!Array.isArray(probs)) return [];
-	const out: string[] = [];
+	const out: TokenProb[] = [];
 	for (const p of probs) {
 		const tok = (p.token ?? p.tok_str ?? p.content) as string | undefined;
-		if (typeof tok === 'string' && tok.length > 0) out.push(tok);
-		if (out.length >= n) break;
+		if (typeof tok !== 'string' || tok.length === 0) continue;
+		let prob = typeof p.prob === 'number' ? p.prob : NaN;
+		if (Number.isNaN(prob) && typeof p.logprob === 'number') {
+			prob = Math.exp(p.logprob);
+		}
+		if (Number.isNaN(prob)) prob = 0;
+		out.push({ token: tok, prob });
 	}
-	return out;
+	out.sort((a, b) => b.prob - a.prob);
+	return out.slice(0, n);
 }
 
 /** First whitespace-delimited word of `s` (leading whitespace ignored), or ''. */
@@ -38,17 +53,28 @@ export function firstWord(s: string): string {
 	return m?.[1] ?? '';
 }
 
-/** Dedupe candidate words in order, drop empties, cap at `max`. */
-export function mergeCandidates(words: string[], max: number): string[] {
-	const seen = new Set<string>();
-	const out: string[] = [];
-	for (const w of words) {
-		if (!w || seen.has(w)) continue;
-		seen.add(w);
-		out.push(w);
-		if (out.length >= max) break;
+export interface WeightedWord {
+	word: string;
+	prob: number;
+}
+
+/**
+ * Merge duplicate words by summing their probabilities, drop empties,
+ * sort by probability descending, cap at `max`.
+ */
+export function mergeCandidates(
+	words: WeightedWord[],
+	max: number,
+): WeightedWord[] {
+	const merged = new Map<string, number>();
+	for (const { word, prob } of words) {
+		if (!word) continue;
+		merged.set(word, (merged.get(word) ?? 0) + prob);
 	}
-	return out;
+	return [...merged.entries()]
+		.map(([word, prob]) => ({ word, prob }))
+		.sort((a, b) => b.prob - a.prob)
+		.slice(0, max);
 }
 
 /** Does a word end a sentence? */
@@ -57,8 +83,12 @@ export function endsSentence(word: string): boolean {
 }
 
 export interface CompletionClient {
-	/** Top-N most likely next tokens after `prompt`. */
-	topTokens(prompt: string, n: number, signal: AbortSignal): Promise<string[]>;
+	/** Top-N most likely next tokens after `prompt`, sorted by prob desc. */
+	topTokens(
+		prompt: string,
+		n: number,
+		signal: AbortSignal,
+	): Promise<TokenProb[]>;
 	/** Greedy short continuation of `prompt` (raw text, may start mid-word). */
 	continueText(prompt: string, signal: AbortSignal): Promise<string>;
 }
@@ -87,7 +117,7 @@ export class LlamaClient implements CompletionClient {
 		prompt: string,
 		n: number,
 		signal: AbortSignal,
-	): Promise<string[]> {
+	): Promise<TokenProb[]> {
 		const json = await this.post(
 			{ prompt, n_predict: 1, n_probs: Math.max(n + 5, 15), temperature: 0 },
 			signal,

@@ -41,7 +41,11 @@ A local writing assistant that keeps a novelist in flow. It never writes for the
 
 - **Controller is DOM-free.** All lifecycle logic (trigger, clear, abort, cache, deepen) lives in `SuggestionController` behind a `StripRenderer` interface → testable with fake client + fake timers.
 - **Staleness via session id.** Every async continuation re-checks `session.id === current.id` before touching state or rendering; AbortController cancels the fetches themselves.
-- **Word completion = greedy continuation.** llama tokens are fragments; each top token is completed by a temperature-0 continuation, cut at the first whitespace boundary. Duplicates merged, capped at N.
+- **Word completion = greedy continuation.** llama tokens are fragments; each top token is completed by a temperature-0 continuation, cut at the first whitespace boundary. Duplicates merged by summing their probabilities, re-sorted descending, capped at N.
+- **Probabilities are first-class.** Candidates carry the seed-token probability end to end; the strip shows it as `(NN%)`, the list is sorted by it, and tokens below the configurable cutoff (default 1%) are dropped *before* spending completion requests. This also prunes a base model's multilingual garbage tail.
+- **Idle deepening ships disabled** (default maxDepth 1) until the single-word flow is proven; re-enable via the Max depth setting.
+- **Live integration tests are opt-in:** `LLAMA_ENDPOINT=http://127.0.0.1:8081 npm test` runs `tests/llama-live.test.ts` against the real server (skipped otherwise) and logs what the model actually returns — first stop when the strip shows garbage.
+- **The endpoint must serve a BASE model.** Instruct/chat models (`-it`, `-instruct`) given raw untemplated text produce garbage next-token distributions; the live test's top-token log makes this immediately visible.
 - **Deepening reuses the same continuation call** with prompt = prefix + candidate text; a candidate is `done` at max depth, sentence end (`.?!`), or when the model yields no word.
 - **Deepening is paced sequentially, not on a fixed interval.** The next round is scheduled (setTimeout) only after the previous round's requests have all returned: cadence = previous round duration + idle interval. The local server never sees overlapping rounds.
 - **Prompt = last 4000 chars before cursor** — bounds latency and cache keys.
