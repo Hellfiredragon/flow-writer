@@ -1,14 +1,10 @@
-feat(strip): typed letters refine selection; Ctrl+Space picks; bigger UI
+docs: add transfer brief for porting Flow Writer to a VS Code extension
 
-- Typing letters (or backspacing) right after the trigger no longer
-  dismisses the strip: controller.refine(typed) selects the first
-  candidate whose text starts with the prefix (case-insensitive).
-  Whitespace, trigger chars, or a non-matching prefix end the beat as
-  before. Amends hard rule 2 accordingly.
-- Ctrl+Space inserts the selected entry; Alt+1..0 and click still work.
-  planPick gains a `typed` parameter so picks replace the typed prefix
-  with the full candidate ("Paris is th" + pick "the" -> "Paris is the ").
-- Strip renders the selection (is-selected highlight, text-normal) and
-  is a bit bigger (font-smallest -> font-smaller, opacity 0.9).
+transfer_to_vscode_plugin.md: what the project is and wants to achieve,
+which modules port as-is (llama.ts, controller.ts, tests, probe script),
+an Obsidian->VS Code API mapping table, the hard-won lessons (trailing-
+space token boundary, base-model requirement, one-request beat, glue
+tokens, staleness guards, sequential deepening), and a suggested build
+order plus reference environment/timings.
 
 Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
