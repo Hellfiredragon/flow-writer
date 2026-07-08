@@ -1,7 +1,9 @@
-chore(ci): remove GitHub Actions workflows
+feat(scripts): probe prints top-5 words extended greedily to punctuation
 
-Delete .github/workflows (lint.yml, release.yml) — the sample plugin's
-CI leftovers were triggering unwanted pipeline builds on the GitLab
-mirror. No other CI config exists in the repo.
+Rework the probe output: instead of dumping raw tokens, show the top 5
+candidates (with seed probability) and extend each along a single greedy
+top-1 path — no branching — until a word ends the sentence, the model
+dries up, or --max-words (default 30). Mirrors the plugin's idle
+deepening (depth, not width). Drops --continue; adds --max-words.
 
 Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>

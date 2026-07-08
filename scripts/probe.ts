@@ -1,7 +1,9 @@
 /**
- * Probe a llama-server endpoint with arbitrary text and print what the
- * suggestion strip would show — the plugin's real pipeline (topTokens →
- * probability cutoff → completeWord → mergeCandidates), outside Obsidian.
+ * Probe a llama-server endpoint with arbitrary text: print the top-5 next
+ * words (plugin pipeline: topTokens → cutoff → completeWord →
+ * mergeCandidates) and greedily extend each one — always following the
+ * single most likely continuation, never branching — until punctuation
+ * ends the sentence.
  *
  * Usage (Node ≥ 22.6 runs TypeScript directly):
  *
@@ -13,14 +15,16 @@
  *   --endpoint <url>   llama-server base URL (default http://127.0.0.1:8081,
  *                      or LLAMA_ENDPOINT)
  *   --file <path>      read the prompt from a file instead of argv/stdin
- *   --n <count>        number of candidates (default 10)
+ *   --n <count>        number of candidates (default 5)
  *   --cutoff <prob>    min seed-token probability, e.g. 0.01 (default 0.01)
- *   --continue         also print the greedy 8-token continuation
+ *   --max-words <k>    safety cap per continuation (default 30)
  */
 import { readFileSync } from 'node:fs';
 import {
 	LlamaClient,
 	completeWord,
+	endsSentence,
+	firstWord,
 	mergeCandidates,
 	type WeightedWord,
 } from '../src/llama.ts';
@@ -34,9 +38,9 @@ function fail(msg: string): never {
 const argv = process.argv.slice(2);
 let endpoint = process.env.LLAMA_ENDPOINT ?? 'http://127.0.0.1:8081';
 let file: string | undefined;
-let n = 10;
+let n = 5;
 let cutoff = 0.01;
-let showContinuation = false;
+let maxWords = 30;
 const positional: string[] = [];
 
 for (let i = 0; i < argv.length; i++) {
@@ -46,10 +50,10 @@ for (let i = 0; i < argv.length; i++) {
 	else if (a === '--file') file = next();
 	else if (a === '--n') n = Number(next());
 	else if (a === '--cutoff') cutoff = Number(next());
-	else if (a === '--continue') showContinuation = true;
+	else if (a === '--max-words') maxWords = Number(next());
 	else if (a === '--help' || a === '-h') {
 		console.log(
-			'usage: npm run probe -- [--endpoint url] [--n 10] [--cutoff 0.01] [--continue] ("text" | --file path | stdin)',
+			'usage: npm run probe -- [--endpoint url] [--n 5] [--cutoff 0.01] [--max-words 30] ("text" | --file path | stdin)',
 		);
 		process.exit(0);
 	} else positional.push(a);
@@ -68,7 +72,22 @@ prompt = prompt.slice(-4000);
 (globalThis as Record<string, unknown>).window ??= globalThis;
 const client = new LlamaClient(() => endpoint);
 const signal = () => AbortSignal.timeout(30_000);
-const pct = (p: number) => `${(p * 100).toFixed(1).padStart(5)}%`;
+const pct = (p: number) => `${(p * 100).toFixed(1)}%`;
+
+/**
+ * Extend `words` greedily — top-1 continuation only, one path, no tree —
+ * until a word ends the sentence, the model dries up, or `maxWords`.
+ */
+async function extendToPunctuation(words: string): Promise<string> {
+	while (words.split(' ').length < maxWords) {
+		if (endsSentence(words)) break;
+		const rest = await client.continueText(`${prompt}${words} `, signal());
+		const word = firstWord(rest);
+		if (!word) break;
+		words += ` ${word}`;
+	}
+	return words;
+}
 
 console.log(`endpoint : ${endpoint}`);
 console.log(`prompt   : …${JSON.stringify(prompt.slice(-80))}`);
@@ -81,13 +100,6 @@ if (tokens.length === 0) {
 	);
 }
 
-console.log('top tokens (raw):');
-for (const t of tokens) {
-	const kept = t.prob >= cutoff ? '' : '   (below cutoff, dropped)';
-	console.log(`  ${pct(t.prob)}  ${JSON.stringify(t.token)}${kept}`);
-}
-console.log('');
-
 const seeds = tokens.filter((t) => t.prob >= cutoff);
 const words: WeightedWord[] = await Promise.all(
 	seeds.map(async (t) => ({
@@ -96,15 +108,11 @@ const words: WeightedWord[] = await Promise.all(
 	})),
 );
 const candidates = mergeCandidates(words, n);
-
-console.log('strip candidates:');
-if (candidates.length === 0) console.log('  (none — the strip would stay hidden)');
-for (const [i, c] of candidates.entries()) {
-	console.log(`  ${(i + 1) % 10}: ${c.word}  (${pct(c.prob).trim()})`);
+if (candidates.length === 0) {
+	fail('no candidates above cutoff — the strip would stay hidden');
 }
 
-if (showContinuation) {
-	const rest = await client.continueText(prompt, signal());
-	console.log('');
-	console.log(`greedy continuation: ${JSON.stringify(rest)}`);
+for (const [i, c] of candidates.entries()) {
+	const extended = await extendToPunctuation(c.word);
+	console.log(`${i + 1}: (${pct(c.prob)}) ${extended}`);
 }
