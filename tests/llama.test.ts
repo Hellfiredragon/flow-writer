@@ -109,9 +109,9 @@ describe('mergeCandidates', () => {
 			3,
 		);
 		expect(out).toEqual([
-			{ word: 'the', prob: 0.30000000000000004 },
-			{ word: 'a', prob: 0.25 },
-			{ word: 'an', prob: 0.05 },
+			{ word: 'the', prob: 0.30000000000000004, glue: false },
+			{ word: 'a', prob: 0.25, glue: false },
+			{ word: 'an', prob: 0.05, glue: false },
 		]);
 	});
 });

@@ -10,6 +10,11 @@ export interface Candidate {
 	prob: number;
 	/** No further deepening (max depth, sentence end, or model dried up). */
 	done: boolean;
+	/**
+	 * Seed token had no leading space: attaches directly to the previous
+	 * word ("'s", ","), instead of being separated by a space.
+	 */
+	glue: boolean;
 }
 
 export interface TokenProb {
@@ -56,23 +61,28 @@ export function firstWord(s: string): string {
 export interface WeightedWord {
 	word: string;
 	prob: number;
+	/** Word attaches to the previous one without a space (see Candidate). */
+	glue?: boolean;
 }
 
 /**
  * Merge duplicate words by summing their probabilities, drop empties,
- * sort by probability descending, cap at `max`.
+ * sort by probability descending, cap at `max`. On duplicates the first
+ * (= most probable, input is sorted) occurrence's glue wins.
  */
 export function mergeCandidates(
 	words: WeightedWord[],
 	max: number,
 ): WeightedWord[] {
-	const merged = new Map<string, number>();
-	for (const { word, prob } of words) {
+	const merged = new Map<string, { prob: number; glue: boolean }>();
+	for (const { word, prob, glue } of words) {
 		if (!word) continue;
-		merged.set(word, (merged.get(word) ?? 0) + prob);
+		const prev = merged.get(word);
+		if (prev) prev.prob += prob;
+		else merged.set(word, { prob, glue: glue ?? false });
 	}
 	return [...merged.entries()]
-		.map(([word, prob]) => ({ word, prob }))
+		.map(([word, { prob, glue }]) => ({ word, prob, glue }))
 		.sort((a, b) => b.prob - a.prob)
 		.slice(0, max);
 }

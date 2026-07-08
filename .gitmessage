@@ -1,12 +1,13 @@
-fix(controller): trim trailing whitespace from the prompt
+feat(pick): glue-aware insertion — 's attaches, punctuation gets a space
 
-BPE word tokens carry their leading space (" the"), so a prompt ending
-in " " — which every trigger keystroke produces — starves all real word
-tokens and surfaces the junk that follows a space without one: bare
-numbers, <strong>/<em> tags, quotes. Trim trailing whitespace before
-sending; returned tokens then carry the space themselves and firstWord
-already strips it. Deepening re-joins prompt + " " + candidate to keep
-the boundary clean. Probe script normalizes identically. Verified live:
-"Paris is " now yields a/the/one/known/not instead of 10/2017/<strong>.
+Candidates now carry whether their seed token had a leading space
+(glue). New pure planPick(before, candidate) plans the pick edit:
+consume trailing spaces/tabs before the cursor, then insert either the
+glued candidate directly after the previous word ("Paris " + 's ->
+"Paris's ") or a normal word with exactly one separating space — added
+even when the user typed none (punctuation trigger "It rains." ->
+"It rains. The "), never at line/document start. Deepening joins
+prompt + (glue ? '' : ' ') + candidate to match. candidateAt returns
+the full Candidate; main.ts pick dispatches the planned change.
 
 Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>

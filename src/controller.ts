@@ -34,6 +34,28 @@ export const DEFAULT_CONTROLLER_OPTIONS: ControllerOptions = {
 	minProb: 0.01,
 };
 
+/**
+ * Plan the document edit for picking `cand` with `before` = text before the
+ * cursor. Trailing spaces/tabs are consumed and reinserted deliberately: a
+ * glue candidate ("'s", ",") attaches directly to the previous word, a
+ * normal word is separated by exactly one space — added even when the user
+ * typed none (e.g. right after punctuation). No space is added at the start
+ * of a line or document. The insertion always ends with a space, which
+ * re-triggers prediction like any typed space.
+ */
+export function planPick(
+	before: string,
+	cand: Candidate,
+): { deleteBack: number; insert: string } {
+	const trailing = /[ \t]*$/.exec(before)?.[0] ?? '';
+	const prev = before.slice(0, before.length - trailing.length).slice(-1);
+	const needSpace = !cand.glue && prev !== '' && prev !== '\n';
+	return {
+		deleteBack: trailing.length,
+		insert: `${needSpace ? ' ' : ''}${cand.text} `,
+	};
+}
+
 interface Session {
 	id: number;
 	prompt: string;
@@ -62,9 +84,9 @@ export class SuggestionController {
 		return this.session !== null && this.session.candidates.length > 0;
 	}
 
-	/** Word for pick slot `i` (0-based), or null. */
-	candidateAt(i: number): string | null {
-		return this.session?.candidates[i]?.text ?? null;
+	/** Candidate for pick slot `i` (0-based), or null. */
+	candidateAt(i: number): Candidate | null {
+		return this.session?.candidates[i] ?? null;
 	}
 
 	/**
@@ -136,13 +158,20 @@ export class SuggestionController {
 		// ("Fr" for "France"); accepting the speed/quality tradeoff for now.
 		const words = tokens
 			.filter((t) => t.prob >= opts.minProb)
-			.map((t) => ({ word: firstWord(t.token), prob: t.prob }));
+			.map((t) => ({
+				word: firstWord(t.token),
+				prob: t.prob,
+				// No leading space on the token: attaches to the previous
+				// word ("'s", ",") instead of standing alone.
+				glue: /^\S/.test(t.token),
+			}));
 		const merged = mergeCandidates(words, opts.maxCandidates);
 		if (merged.length === 0) return;
-		session.candidates = merged.map(({ word, prob }) => ({
+		session.candidates = merged.map(({ word, prob, glue }) => ({
 			text: word,
 			prob,
 			done: endsSentence(word) || opts.maxDepth <= 1,
+			glue: glue ?? false,
 		}));
 		this.cache.set(session.prompt, session.candidates);
 		if (this.cache.size > opts.cacheSize) {
@@ -177,9 +206,10 @@ export class SuggestionController {
 				let next = '';
 				try {
 					// Prompt has no trailing space (see trigger): re-join the
-					// candidate with a single space to keep the boundary clean.
+					// candidate the way it would be inserted — glued directly,
+					// or separated by a single space.
 					const rest = await this.client.continueText(
-						`${session.prompt} ${cand.text}`,
+						session.prompt + (cand.glue ? '' : ' ') + cand.text,
 						session.abort.signal,
 					);
 					// Continuation must start a new word, not extend the last one.

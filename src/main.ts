@@ -10,6 +10,7 @@ import { LlamaClient } from './llama';
 import {
 	DEFAULT_CONTROLLER_OPTIONS,
 	SuggestionController,
+	planPick,
 } from './controller';
 import { StripView } from './strip';
 
@@ -124,17 +125,20 @@ export default class FlowWriterPlugin extends Plugin {
 		this.controller.trigger(view.state.sliceDoc(0, head));
 	}
 
-	/** Insert candidate `slot` plus a trailing space; the insertion itself
-	 *  retriggers prediction like any typed space (never automatic — rule 1). */
+	/** Insert candidate `slot` via planPick (glue-aware spacing, trailing
+	 *  space retriggers prediction — never automatic, rule 1). */
 	private pick(slot: number): boolean {
 		const view = this.activeView;
-		const word = this.controller.candidateAt(slot);
-		if (!view || word === null) return false;
+		const cand = this.controller.candidateAt(slot);
+		if (!view || cand === null) return false;
 		const head = view.state.selection.main.head;
-		const insert = `${word} `;
+		const { deleteBack, insert } = planPick(
+			view.state.sliceDoc(0, head),
+			cand,
+		);
 		view.dispatch({
-			changes: { from: head, insert },
-			selection: { anchor: head + insert.length },
+			changes: { from: head - deleteBack, to: head, insert },
+			selection: { anchor: head - deleteBack + insert.length },
 			userEvent: 'input.type',
 		});
 		view.focus();

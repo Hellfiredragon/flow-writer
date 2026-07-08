@@ -3,6 +3,7 @@ import {
 	DEFAULT_CONTROLLER_OPTIONS,
 	StripRenderer,
 	SuggestionController,
+	planPick,
 } from '../src/controller';
 import { Candidate, CompletionClient, TokenProb } from '../src/llama';
 
@@ -104,7 +105,7 @@ describe('SuggestionController', () => {
 		]);
 		expect(renderer.last?.map((c) => c.prob)).toEqual([0.5, 0.3, 0.2]);
 		expect(controller.active).toBe(true);
-		expect(controller.candidateAt(0)).toBe('France');
+		expect(controller.candidateAt(0)?.text).toBe('France');
 		expect(controller.candidateAt(9)).toBeNull();
 	});
 
@@ -136,6 +137,19 @@ describe('SuggestionController', () => {
 		await flush();
 		await vi.advanceTimersByTimeAsync(opts.idleIntervalMs);
 		expect(renderer.last?.[0]?.text).toBe('France is');
+	});
+
+	it('marks tokens without a leading space as glue candidates', async () => {
+		client.tokens = [
+			{ token: ' the', prob: 0.5 },
+			{ token: "'s", prob: 0.3 },
+		];
+		controller.trigger('Paris ');
+		await flush();
+		expect(renderer.last?.map((c) => [c.text, c.glue])).toEqual([
+			['the', false],
+			["'s", true],
+		]);
 	});
 
 	it('never triggers on whitespace-only prompts', async () => {
@@ -292,6 +306,54 @@ describe('SuggestionController', () => {
 		controller.trigger('one ');
 		await flush();
 		expect(client.topTokensCalls).toBe(4); // 'one' was evicted, refetched
+	});
+
+	describe('planPick', () => {
+		const cand = (text: string, glue = false) => ({
+			text,
+			prob: 0.5,
+			done: true,
+			glue,
+		});
+
+		it('replaces the typed trailing space with one separating space', () => {
+			expect(planPick('Paris is ', cand('the'))).toEqual({
+				deleteBack: 1,
+				insert: ' the ',
+			});
+		});
+
+		it('adds the separating space after punctuation without one', () => {
+			expect(planPick('It rains.', cand('The'))).toEqual({
+				deleteBack: 0,
+				insert: ' The ',
+			});
+		});
+
+		it('glues candidates like \'s directly to the previous word', () => {
+			expect(planPick('Paris ', cand("'s", true))).toEqual({
+				deleteBack: 1,
+				insert: "'s ",
+			});
+		});
+
+		it('consumes multiple trailing spaces', () => {
+			expect(planPick('Paris is  ', cand('the'))).toEqual({
+				deleteBack: 2,
+				insert: ' the ',
+			});
+		});
+
+		it('adds no space at line or document start', () => {
+			expect(planPick('line one\n', cand('The'))).toEqual({
+				deleteBack: 0,
+				insert: 'The ',
+			});
+			expect(planPick('', cand('The'))).toEqual({
+				deleteBack: 0,
+				insert: 'The ',
+			});
+		});
 	});
 
 	it('stays silent when the server is unreachable', async () => {
