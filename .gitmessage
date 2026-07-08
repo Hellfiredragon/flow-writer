@@ -1,13 +1,14 @@
-feat(pick): glue-aware insertion — 's attaches, punctuation gets a space
+feat(strip): typed letters refine selection; Ctrl+Space picks; bigger UI
 
-Candidates now carry whether their seed token had a leading space
-(glue). New pure planPick(before, candidate) plans the pick edit:
-consume trailing spaces/tabs before the cursor, then insert either the
-glued candidate directly after the previous word ("Paris " + 's ->
-"Paris's ") or a normal word with exactly one separating space — added
-even when the user typed none (punctuation trigger "It rains." ->
-"It rains. The "), never at line/document start. Deepening joins
-prompt + (glue ? '' : ' ') + candidate to match. candidateAt returns
-the full Candidate; main.ts pick dispatches the planned change.
+- Typing letters (or backspacing) right after the trigger no longer
+  dismisses the strip: controller.refine(typed) selects the first
+  candidate whose text starts with the prefix (case-insensitive).
+  Whitespace, trigger chars, or a non-matching prefix end the beat as
+  before. Amends hard rule 2 accordingly.
+- Ctrl+Space inserts the selected entry; Alt+1..0 and click still work.
+  planPick gains a `typed` parameter so picks replace the typed prefix
+  with the full candidate ("Paris is th" + pick "the" -> "Paris is the ").
+- Strip renders the selection (is-selected highlight, text-normal) and
+  is a bit bigger (font-smallest -> font-smaller, opacity 0.9).
 
 Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>

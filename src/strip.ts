@@ -18,7 +18,7 @@ export class StripView implements StripRenderer {
 
 	constructor(private host: StripHost) {}
 
-	render(candidates: Candidate[]): void {
+	render(candidates: Candidate[], selected: number): void {
 		if (!this.el) {
 			this.el = document.body.createDiv({ cls: 'flow-writer-strip' });
 			this.slots = [];
@@ -55,6 +55,7 @@ export class StripView implements StripRenderer {
 						: '(<1%)';
 				if (prob.textContent !== pct) prob.textContent = pct;
 			}
+			slot.classList.toggle('is-selected', i === selected);
 		});
 		this.reposition();
 	}

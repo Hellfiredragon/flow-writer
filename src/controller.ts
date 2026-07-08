@@ -8,7 +8,7 @@ import {
 
 export interface StripRenderer {
 	/** Show or update the strip in place. Called with the live array. */
-	render(candidates: Candidate[]): void;
+	render(candidates: Candidate[], selected: number): void;
 	/** Remove the strip. */
 	clear(): void;
 }
@@ -46,12 +46,15 @@ export const DEFAULT_CONTROLLER_OPTIONS: ControllerOptions = {
 export function planPick(
 	before: string,
 	cand: Candidate,
+	/** Refinement prefix typed since the trigger — replaced by the pick. */
+	typed = '',
 ): { deleteBack: number; insert: string } {
-	const trailing = /[ \t]*$/.exec(before)?.[0] ?? '';
-	const prev = before.slice(0, before.length - trailing.length).slice(-1);
+	const base = typed ? before.slice(0, before.length - typed.length) : before;
+	const trailing = /[ \t]*$/.exec(base)?.[0] ?? '';
+	const prev = base.slice(0, base.length - trailing.length).slice(-1);
 	const needSpace = !cand.glue && prev !== '' && prev !== '\n';
 	return {
-		deleteBack: trailing.length,
+		deleteBack: typed.length + trailing.length,
 		insert: `${needSpace ? ' ' : ''}${cand.text} `,
 	};
 }
@@ -60,6 +63,8 @@ interface Session {
 	id: number;
 	prompt: string;
 	candidates: Candidate[];
+	/** Index highlighted in the strip; refined by typed letters. */
+	selected: number;
 	abort: AbortController;
 	idleTimer: ReturnType<typeof setTimeout> | null;
 }
@@ -89,6 +94,30 @@ export class SuggestionController {
 		return this.session?.candidates[i] ?? null;
 	}
 
+	/** Index of the highlighted candidate (0 until refined). */
+	get selectedIndex(): number {
+		return this.session?.selected ?? 0;
+	}
+
+	/**
+	 * Refine the live set with the letters typed since the trigger: the
+	 * first candidate whose text starts with `typed` (case-insensitive)
+	 * becomes selected. Returns false when nothing matches — the caller
+	 * should end the beat then.
+	 */
+	refine(typed: string): boolean {
+		const s = this.session;
+		if (!s || s.candidates.length === 0) return false;
+		const t = typed.toLowerCase();
+		const idx = s.candidates.findIndex((c) =>
+			c.text.toLowerCase().startsWith(t),
+		);
+		if (idx === -1) return false;
+		s.selected = idx;
+		this.renderer.render(s.candidates, idx);
+		return true;
+	}
+
 	/**
 	 * Start a new suggestion beat for the text before the cursor.
 	 * Discards and aborts any previous session first.
@@ -107,6 +136,7 @@ export class SuggestionController {
 			id: this.nextId++,
 			prompt,
 			candidates: [],
+			selected: 0,
 			abort: new AbortController(),
 			idleTimer: null,
 		};
@@ -118,7 +148,7 @@ export class SuggestionController {
 			this.cache.delete(prompt);
 			this.cache.set(prompt, cached);
 			session.candidates = cached;
-			this.renderer.render(session.candidates);
+			this.renderer.render(session.candidates, session.selected);
 			this.startIdle(session);
 			return;
 		}
@@ -178,7 +208,7 @@ export class SuggestionController {
 			const oldest = this.cache.keys().next().value as string;
 			this.cache.delete(oldest);
 		}
-		this.renderer.render(session.candidates);
+		this.renderer.render(session.candidates, session.selected);
 		this.startIdle(session);
 	}
 
@@ -229,7 +259,7 @@ export class SuggestionController {
 			}),
 		);
 		if (!this.isLive(session)) return;
-		this.renderer.render(session.candidates);
+		this.renderer.render(session.candidates, session.selected);
 		this.startIdle(session);
 	}
 }

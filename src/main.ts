@@ -20,6 +20,8 @@ export default class FlowWriterPlugin extends Plugin {
 	private strip!: StripView;
 	/** The one editor view that owns the live strip (hard rules 2 & robustness). */
 	private activeView: EditorView | null = null;
+	/** Doc position right after the trigger char; typed letters beyond it refine. */
+	private triggerHead = 0;
 
 	async onload() {
 		await this.loadSettings();
@@ -72,6 +74,15 @@ export default class FlowWriterPlugin extends Plugin {
 			});
 		}
 		bindings.push({
+			key: 'Ctrl-Space',
+			run: (view: EditorView) => {
+				if (view !== this.activeView || !this.controller.active) {
+					return false;
+				}
+				return this.pick(this.controller.selectedIndex);
+			},
+		});
+		bindings.push({
 			key: 'Escape',
 			run: (view: EditorView) => {
 				if (view !== this.activeView || !this.controller.active) {
@@ -107,9 +118,10 @@ export default class FlowWriterPlugin extends Plugin {
 	}
 
 	private handleEdit(update: ViewUpdate): void {
+		const view = update.view;
+		if (this.tryRefine(update)) return;
 		this.controller.clear();
 		this.activeView = null;
-		const view = update.view;
 		if (!view.hasFocus) return;
 		const isTyping = update.transactions.some((tr) =>
 			tr.isUserEvent('input.type'),
@@ -122,7 +134,39 @@ export default class FlowWriterPlugin extends Plugin {
 		const lastChar = view.state.sliceDoc(head - 1, head);
 		if (!this.settings.triggerChars.includes(lastChar)) return;
 		this.activeView = view;
+		this.triggerHead = head;
 		this.controller.trigger(view.state.sliceDoc(0, head));
+	}
+
+	/** Letters typed (or backspaced) after the trigger refine the live set:
+	 *  the first matching candidate is selected instead of ending the beat. */
+	private tryRefine(update: ViewUpdate): boolean {
+		const view = update.view;
+		if (view !== this.activeView || !this.controller.active) return false;
+		if (!view.hasFocus) return false;
+		const isEdit = update.transactions.some(
+			(tr) =>
+				tr.isUserEvent('input.type') || tr.isUserEvent('delete.backward'),
+		);
+		if (!isEdit) return false;
+		const sel = view.state.selection.main;
+		if (!sel.empty || sel.head < this.triggerHead) return false;
+		const typed = view.state.sliceDoc(this.triggerHead, sel.head);
+		// Whitespace or a trigger char ends refinement (new beat / discard).
+		if (/\s/.test(typed)) return false;
+		if ([...typed].some((ch) => this.settings.triggerChars.includes(ch))) {
+			return false;
+		}
+		if (!this.controller.refine(typed)) return false;
+		this.strip.reposition();
+		return true;
+	}
+
+	/** Refinement prefix currently typed after the trigger, '' outside a beat. */
+	private typedPrefix(view: EditorView): string {
+		const head = view.state.selection.main.head;
+		if (head <= this.triggerHead) return '';
+		return view.state.sliceDoc(this.triggerHead, head);
 	}
 
 	/** Insert candidate `slot` via planPick (glue-aware spacing, trailing
@@ -135,6 +179,7 @@ export default class FlowWriterPlugin extends Plugin {
 		const { deleteBack, insert } = planPick(
 			view.state.sliceDoc(0, head),
 			cand,
+			this.typedPrefix(view),
 		);
 		view.dispatch({
 			changes: { from: head - deleteBack, to: head, insert },

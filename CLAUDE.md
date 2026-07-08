@@ -1,11 +1,11 @@
 # Flow Writer — Obsidian Plugin
 
-A local writing assistant that keeps a novelist in flow. It never writes for the user — it offers. After a trigger keystroke (space/punctuation) it shows a quiet strip of the ~10 most likely next words below the cursor line, predicted by a local llama.cpp server (`/completion`, base non-instruct model, prompt = document text before cursor). Pick with Alt+1..0 or click; while idle, candidates deepen by one word per second along a single path each.
+A local writing assistant that keeps a novelist in flow. It never writes for the user — it offers. After a trigger keystroke (space/punctuation) it shows a quiet strip of the ~10 most likely next words below the cursor line, predicted by a local llama.cpp server (`/completion`, base non-instruct model, prompt = document text before cursor). Pick with Alt+1..0, Ctrl+Space (selected entry), or click; typing letters refines the selection instead of dismissing; while idle, candidates deepen by one word per second along a single path each.
 
 ## Hard rules (product)
 
 1. Never insert text automatically — only explicit pick or user typing.
-2. One-beat lifetime: exactly one live suggestion set; any keystroke/cursor move/edit discards it and aborts all in-flight requests.
+2. One-beat lifetime: exactly one live suggestion set. Letters typed (or backspaced) directly after the trigger *refine* it — they select the first matching candidate instead of discarding. Any other keystroke/cursor move/edit discards the set and aborts all in-flight requests.
 3. Depth, not width: idle deepening extends candidates, never branches.
 4. Instant & abort-safe: strip updates fast; stale results never render.
 5. Quiet UI: low-contrast, theme variables, never pushes user text, no flicker/reorder on deepening.
@@ -54,4 +54,5 @@ A local writing assistant that keeps a novelist in flow. It never writes for the
 - **Cache stores live candidate arrays** (LRU 32), so revisiting a position restores the deepened state instantly.
 - **Strip is a fixed-position overlay** appended to the view DOM, repositioned on geometry changes — it never reflows the document (hard rule 5). Deepening mutates candidate text nodes in place; order never changes.
 - **Pick re-triggers naturally:** inserted text ends with a trailing space, and the trigger detector treats it like any typed space.
+- **Typing refines instead of dismissing.** Letters (and backspace) after the trigger form a prefix; `controller.refine(typed)` selects the first candidate matching it case-insensitively (strip highlights via `is-selected`). Whitespace, trigger chars, or a non-matching prefix end the beat as before. Ctrl+Space picks the selected entry; `planPick`'s `typed` parameter makes the pick replace the typed prefix with the full candidate.
 - **Picks are glue-aware (`planPick`, pure & tested).** A candidate whose seed token had no leading space (`glue: true`, e.g. `'s`, `,`) attaches directly to the previous word: the pick consumes the trailing spaces before the cursor and inserts without a separator. Normal words get exactly one separating space — added even when none was typed (after punctuation triggers), never at line/document start. Deepening joins `prompt + (glue ? '' : ' ') + candidate` to match.

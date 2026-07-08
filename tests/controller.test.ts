@@ -62,9 +62,11 @@ class FakeClient implements CompletionClient {
 
 class FakeRenderer implements StripRenderer {
 	rendered: Candidate[][] = [];
+	selections: number[] = [];
 	cleared = 0;
-	render(candidates: Candidate[]): void {
+	render(candidates: Candidate[], selected: number): void {
 		this.rendered.push(candidates.map((c) => ({ ...c })));
+		this.selections.push(selected);
 	}
 	clear(): void {
 		this.cleared++;
@@ -308,6 +310,32 @@ describe('SuggestionController', () => {
 		expect(client.topTokensCalls).toBe(4); // 'one' was evicted, refetched
 	});
 
+	describe('refine', () => {
+		it('selects the first candidate matching the typed prefix', async () => {
+			client.tokens = [
+				{ token: ' France', prob: 0.5 },
+				{ token: ' the', prob: 0.3 },
+				{ token: ' theatre', prob: 0.2 },
+			];
+			controller.trigger('I love ');
+			await flush();
+			expect(controller.selectedIndex).toBe(0);
+			expect(controller.refine('th')).toBe(true);
+			expect(controller.selectedIndex).toBe(1);
+			expect(renderer.selections.at(-1)).toBe(1);
+			// Case-insensitive.
+			expect(controller.refine('fr')).toBe(true);
+			expect(controller.selectedIndex).toBe(0);
+		});
+
+		it('returns false when nothing matches or no session is live', async () => {
+			expect(controller.refine('x')).toBe(false);
+			controller.trigger('I love ');
+			await flush();
+			expect(controller.refine('zzz')).toBe(false);
+		});
+	});
+
 	describe('planPick', () => {
 		const cand = (text: string, glue = false) => ({
 			text,
@@ -341,6 +369,17 @@ describe('SuggestionController', () => {
 			expect(planPick('Paris is  ', cand('the'))).toEqual({
 				deleteBack: 2,
 				insert: ' the ',
+			});
+		});
+
+		it('replaces the typed refinement prefix with the full candidate', () => {
+			expect(planPick('Paris is th', cand('the'), 'th')).toEqual({
+				deleteBack: 3,
+				insert: ' the ',
+			});
+			expect(planPick("Paris '", cand("'s", true), "'")).toEqual({
+				deleteBack: 2,
+				insert: "'s ",
 			});
 		});
 

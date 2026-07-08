@@ -11,10 +11,10 @@
 	padding: 2px 8px;
 	border-radius: var(--radius-s);
 	background-color: var(--background-primary);
-	font-size: var(--font-smallest);
+	font-size: var(--font-smaller);
 	color: var(--text-faint);
 	pointer-events: auto;
-	opacity: 0.85;
+	opacity: 0.9;
 }
 
 .flow-writer-candidate {
@@ -23,6 +23,16 @@
 }
 
 .flow-writer-candidate:hover .flow-writer-word {
+	color: var(--text-muted);
+}
+
+/* Highlighted entry: picked by Ctrl+Space, refined by typed letters. */
+.flow-writer-candidate.is-selected .flow-writer-word {
+	color: var(--text-normal);
+}
+
+.flow-writer-candidate.is-selected .flow-writer-key {
+	opacity: 1;
 	color: var(--text-muted);
 }
 
