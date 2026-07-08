@@ -1,11 +1,7 @@
-feat(scripts): add probe CLI to test texts against the llama endpoint
+chore(ci): remove GitHub Actions workflows
 
-`npm run probe -- "text"` (or --file / stdin) runs the plugin's real
-pipeline (topTokens -> cutoff -> completeWord -> mergeCandidates)
-outside Obsidian and prints the raw top tokens plus the exact strip
-candidates; --continue also shows the greedy continuation. Options:
---endpoint (default LLAMA_ENDPOINT or http://127.0.0.1:8081), --n,
---cutoff. Runs via Node's native TS transform mode, no extra deps.
-scripts/ excluded from eslint like the other dev tooling.
+Delete .github/workflows (lint.yml, release.yml) — the sample plugin's
+CI leftovers were triggering unwanted pipeline builds on the GitLab
+mirror. No other CI config exists in the repo.
 
 Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
