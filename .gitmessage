@@ -1,10 +1,12 @@
-feat(controller): render raw top tokens — one request per beat
+fix(controller): trim trailing whitespace from the prompt
 
-Drop the per-token completeWord fan-out from the initial fetch: tokens
-above the probability cutoff render directly (firstWord of the
-fragment). The trigger-to-strip path is now a single ~100ms topTokens
-request instead of 1 + N requests, to evaluate typing feel. Fragments
-may be partial words ("Fr" for "France") — deliberate tradeoff for now;
-completeWord stays in llama.ts, unit-tested, in case it returns.
+BPE word tokens carry their leading space (" the"), so a prompt ending
+in " " — which every trigger keystroke produces — starves all real word
+tokens and surfaces the junk that follows a space without one: bare
+numbers, <strong>/<em> tags, quotes. Trim trailing whitespace before
+sending; returned tokens then carry the space themselves and firstWord
+already strips it. Deepening re-joins prompt + " " + candidate to keep
+the boundary clean. Probe script normalizes identically. Verified live:
+"Paris is " now yields a/the/one/known/not instead of 10/2017/<strong>.
 
 Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>

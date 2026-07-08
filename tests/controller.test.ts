@@ -13,6 +13,7 @@ import { Candidate, CompletionClient, TokenProb } from '../src/llama';
  */
 class FakeClient implements CompletionClient {
 	topTokensCalls = 0;
+	lastPrompt = '';
 	continueCalls = 0;
 	aborted: AbortSignal[] = [];
 	/** prompt suffix after base -> continuation returned */
@@ -25,11 +26,12 @@ class FakeClient implements CompletionClient {
 	delayMs = 0;
 
 	async topTokens(
-		_prompt: string,
+		prompt: string,
 		_n: number,
 		signal: AbortSignal,
 	): Promise<TokenProb[]> {
 		this.topTokensCalls++;
+		this.lastPrompt = prompt;
 		this.aborted.push(signal);
 		await this.wait(signal);
 		return this.tokens;
@@ -118,6 +120,22 @@ describe('SuggestionController', () => {
 		// The initial beat costs exactly one request — tokens render raw,
 		// no completion requests at all.
 		expect(client.continueCalls).toBe(0);
+	});
+
+	it('trims trailing whitespace from the prompt (token-boundary fix)', async () => {
+		controller.trigger('Paris is ');
+		await flush();
+		// A trailing space starves real word tokens (they carry their own
+		// leading space) and surfaces numbers/HTML tags instead.
+		expect(client.lastPrompt).toBe('Paris is');
+	});
+
+	it('joins deepening prompts with a single space', async () => {
+		client.continuations.set('I love France', ' is');
+		controller.trigger('I love ');
+		await flush();
+		await vi.advanceTimersByTimeAsync(opts.idleIntervalMs);
+		expect(renderer.last?.[0]?.text).toBe('France is');
 	});
 
 	it('never triggers on whitespace-only prompts', async () => {

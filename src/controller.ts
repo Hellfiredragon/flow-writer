@@ -74,7 +74,12 @@ export class SuggestionController {
 	trigger(textBeforeCursor: string): void {
 		this.clear();
 		const opts = this.options();
-		const prompt = textBeforeCursor.slice(-opts.contextChars);
+		// Trailing whitespace is trimmed: BPE word tokens carry their leading
+		// space (" the"), so a prompt ending in " " starves all real words and
+		// surfaces junk that follows a space without one (numbers, HTML tags).
+		const prompt = textBeforeCursor
+			.slice(-opts.contextChars)
+			.replace(/\s+$/, '');
 		if (!/\S/.test(prompt)) return;
 		const session: Session = {
 			id: this.nextId++,
@@ -171,8 +176,10 @@ export class SuggestionController {
 				if (cand.done) return;
 				let next = '';
 				try {
+					// Prompt has no trailing space (see trigger): re-join the
+					// candidate with a single space to keep the boundary clean.
 					const rest = await this.client.continueText(
-						session.prompt + cand.text,
+						`${session.prompt} ${cand.text}`,
 						session.abort.signal,
 					);
 					// Continuation must start a new word, not extend the last one.

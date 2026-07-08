@@ -58,8 +58,10 @@ else if (positional.length > 0) prompt = positional.join(' ');
 else if (!process.stdin.isTTY) prompt = readFileSync(0, 'utf8');
 else fail('no prompt: pass text as an argument, --file, or pipe via stdin');
 
-// Same windowing as the plugin: last 4000 chars before the cursor.
-prompt = prompt.slice(-4000);
+// Same normalization as the plugin: last 4000 chars before the cursor,
+// trailing whitespace trimmed (a prompt ending in " " starves the real
+// word tokens, which carry their own leading space).
+prompt = prompt.slice(-4000).replace(/\s+$/, '');
 
 // --- helpers -----------------------------------------------------------------
 const ms = (v: number) => `${v.toFixed(0)}ms`;

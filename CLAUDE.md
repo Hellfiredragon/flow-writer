@@ -50,7 +50,7 @@ A local writing assistant that keeps a novelist in flow. It never writes for the
 - **The endpoint must serve a BASE model.** Instruct/chat models (`-it`, `-instruct`) given raw untemplated text produce garbage next-token distributions; the live test's top-token log makes this immediately visible.
 - **Deepening reuses the same continuation call** with prompt = prefix + candidate text; a candidate is `done` at max depth, sentence end (`.?!`), or when the model yields no word.
 - **Deepening is paced sequentially, not on a fixed interval.** The next round is scheduled (setTimeout) only after the previous round's requests have all returned: cadence = previous round duration + idle interval. The local server never sees overlapping rounds.
-- **Prompt = last 4000 chars before cursor** — bounds latency and cache keys.
+- **Prompt = last 4000 chars before cursor, trailing whitespace trimmed.** The trim is essential, not cosmetic: BPE word tokens carry their leading space (" the"), so a prompt ending in " " starves every real word and surfaces junk that follows a space without one (bare numbers, HTML tags). Deepening re-joins `prompt + " " + candidate` to keep the boundary clean.
 - **Cache stores live candidate arrays** (LRU 32), so revisiting a position restores the deepened state instantly.
 - **Strip is a fixed-position overlay** appended to the view DOM, repositioned on geometry changes — it never reflows the document (hard rule 5). Deepening mutates candidate text nodes in place; order never changes.
 - **Pick re-triggers naturally:** inserted text ends with a trailing space, and the trigger detector treats it like any typed space.
