@@ -1,9 +1,10 @@
-feat(scripts): add performance metrics to the probe CLI
+refactor(scripts): probe uses 1 + N requests instead of one per token
 
-Instrument the CompletionClient with a timing wrapper: per-request-kind
-stats (count/avg/min/max for topTokens and continueText), per-candidate
-extension time and word count, and phase wall-clock — highlighting
-"strip ready" time, i.e. what the user actually waits for after the
-trigger keystroke, separately from the idle greedy extension.
+One top-token probe, then a single greedy continuation per candidate
+(new optional n_predict param on LlamaClient.continueText, default
+still 8), cut client-side at the first sentence-ending word. Same
+output shape, 6 requests instead of ~127 and ~4s instead of ~47s
+against the local server. --max-words becomes --max-tokens (n_predict
+per expansion, default 30).
 
 Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>

@@ -89,8 +89,12 @@ export interface CompletionClient {
 		n: number,
 		signal: AbortSignal,
 	): Promise<TokenProb[]>;
-	/** Greedy short continuation of `prompt` (raw text, may start mid-word). */
-	continueText(prompt: string, signal: AbortSignal): Promise<string>;
+	/** Greedy continuation of `prompt` (raw text, may start mid-word). */
+	continueText(
+		prompt: string,
+		signal: AbortSignal,
+		nPredict?: number,
+	): Promise<string>;
 }
 
 export class LlamaClient implements CompletionClient {
@@ -125,9 +129,13 @@ export class LlamaClient implements CompletionClient {
 		return parseTopTokens(json, n + 5);
 	}
 
-	async continueText(prompt: string, signal: AbortSignal): Promise<string> {
+	async continueText(
+		prompt: string,
+		signal: AbortSignal,
+		nPredict = 8,
+	): Promise<string> {
 		const json = (await this.post(
-			{ prompt, n_predict: 8, temperature: 0 },
+			{ prompt, n_predict: nPredict, temperature: 0 },
 			signal,
 		)) as Record<string, unknown>;
 		return typeof json?.content === 'string' ? json.content : '';
