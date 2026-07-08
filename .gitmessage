@@ -1,10 +1,6 @@
-refactor(scripts): probe uses 1 + N requests instead of one per token
+chore(scripts): probe default --max-tokens 30 -> 10
 
-One top-token probe, then a single greedy continuation per candidate
-(new optional n_predict param on LlamaClient.continueText, default
-still 8), cut client-side at the first sentence-ending word. Same
-output shape, 6 requests instead of ~127 and ~4s instead of ~47s
-against the local server. --max-words becomes --max-tokens (n_predict
-per expansion, default 30).
+The base model rarely stops on its own; 10 tokens per expansion is
+enough for a sentence fragment and cuts total probe time to ~1.3s.
 
 Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>

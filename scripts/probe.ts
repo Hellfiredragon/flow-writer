@@ -17,7 +17,7 @@
  *   --file <path>      read the prompt from a file instead of argv/stdin
  *   --n <count>        number of candidates (default 5)
  *   --cutoff <prob>    min seed-token probability, e.g. 0.01 (default 0.01)
- *   --max-tokens <k>   n_predict per continuation request (default 30)
+ *   --max-tokens <k>   n_predict per continuation request (default 10)
  */
 import { readFileSync } from 'node:fs';
 import { LlamaClient, type TokenProb, endsSentence } from '../src/llama.ts';
@@ -33,7 +33,7 @@ let endpoint = process.env.LLAMA_ENDPOINT ?? 'http://127.0.0.1:8081';
 let file: string | undefined;
 let n = 5;
 let cutoff = 0.01;
-let maxTokens = 30;
+let maxTokens = 10;
 const positional: string[] = [];
 
 for (let i = 0; i < argv.length; i++) {
@@ -46,7 +46,7 @@ for (let i = 0; i < argv.length; i++) {
 	else if (a === '--max-tokens') maxTokens = Number(next());
 	else if (a === '--help' || a === '-h') {
 		console.log(
-			'usage: npm run probe -- [--endpoint url] [--n 5] [--cutoff 0.01] [--max-tokens 30] ("text" | --file path | stdin)',
+			'usage: npm run probe -- [--endpoint url] [--n 5] [--cutoff 0.01] [--max-tokens 10] ("text" | --file path | stdin)',
 		);
 		process.exit(0);
 	} else positional.push(a);
