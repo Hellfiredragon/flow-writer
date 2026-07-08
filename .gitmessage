@@ -1,9 +1,9 @@
-feat(scripts): probe prints top-5 words extended greedily to punctuation
+feat(scripts): add performance metrics to the probe CLI
 
-Rework the probe output: instead of dumping raw tokens, show the top 5
-candidates (with seed probability) and extend each along a single greedy
-top-1 path — no branching — until a word ends the sentence, the model
-dries up, or --max-words (default 30). Mirrors the plugin's idle
-deepening (depth, not width). Drops --continue; adds --max-words.
+Instrument the CompletionClient with a timing wrapper: per-request-kind
+stats (count/avg/min/max for topTokens and continueText), per-candidate
+extension time and word count, and phase wall-clock — highlighting
+"strip ready" time, i.e. what the user actually waits for after the
+trigger keystroke, separately from the idle greedy extension.
 
 Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
