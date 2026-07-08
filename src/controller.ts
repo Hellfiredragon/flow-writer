@@ -1,9 +1,8 @@
 import {
 	Candidate,
 	CompletionClient,
-	WeightedWord,
-	completeWord,
 	endsSentence,
+	firstWord,
 	mergeCandidates,
 } from './llama';
 
@@ -115,33 +114,24 @@ export class SuggestionController {
 
 	private async fetchInitial(session: Session): Promise<void> {
 		const opts = this.options();
-		let words: WeightedWord[];
+		let tokens;
 		try {
-			const tokens = await this.client.topTokens(
+			tokens = await this.client.topTokens(
 				session.prompt,
 				opts.maxCandidates,
 				session.abort.signal,
-			);
-			if (!this.isLive(session)) return;
-			// Cut the low-probability tail before spending completion requests.
-			const kept = tokens.filter((t) => t.prob >= opts.minProb);
-			words = await Promise.all(
-				kept.map((t) =>
-					completeWord(
-						this.client,
-						session.prompt,
-						t.token,
-						session.abort.signal,
-					)
-						.then((word) => ({ word, prob: t.prob }))
-						.catch(() => ({ word: '', prob: 0 })),
-				),
 			);
 		} catch {
 			// Server unreachable / aborted: strip simply stays absent.
 			return;
 		}
 		if (!this.isLive(session)) return;
+		// One request per beat: raw token fragments above the cutoff render
+		// directly — no completion requests. A fragment may be a partial word
+		// ("Fr" for "France"); accepting the speed/quality tradeoff for now.
+		const words = tokens
+			.filter((t) => t.prob >= opts.minProb)
+			.map((t) => ({ word: firstWord(t.token), prob: t.prob }));
 		const merged = mergeCandidates(words, opts.maxCandidates);
 		if (merged.length === 0) return;
 		session.candidates = merged.map(({ word, prob }) => ({

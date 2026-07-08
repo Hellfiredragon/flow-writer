@@ -8,8 +8,8 @@ import { Candidate, CompletionClient, TokenProb } from '../src/llama';
 
 /**
  * Fake llama client. Top tokens are whole words prefixed with a space
- * (so completeWord resolves them with one continueText call each), and
- * deepening continuations follow a scripted map.
+ * (rendered raw by the controller), and deepening continuations follow
+ * a scripted map.
  */
 class FakeClient implements CompletionClient {
 	topTokensCalls = 0;
@@ -92,7 +92,7 @@ describe('SuggestionController', () => {
 		await vi.advanceTimersByTimeAsync(0);
 	}
 
-	it('trigger fetches, completes words, renders sorted by probability', async () => {
+	it('trigger fetches and renders raw tokens sorted by probability', async () => {
 		controller.trigger('Once upon a time in ');
 		await flush();
 		expect(renderer.last?.map((c) => c.text)).toEqual([
@@ -115,9 +115,9 @@ describe('SuggestionController', () => {
 		controller.trigger('Joe walks on the street, when ');
 		await flush();
 		expect(renderer.last?.map((c) => c.text)).toEqual(['France', 'the']);
-		// The sub-1% token never even costs a completion request:
-		// 1 request per kept candidate only.
-		expect(client.continueCalls).toBe(2);
+		// The initial beat costs exactly one request — tokens render raw,
+		// no completion requests at all.
+		expect(client.continueCalls).toBe(0);
 	});
 
 	it('never triggers on whitespace-only prompts', async () => {

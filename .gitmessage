@@ -1,6 +1,10 @@
-chore(scripts): probe default --max-tokens 30 -> 10
+feat(controller): render raw top tokens — one request per beat
 
-The base model rarely stops on its own; 10 tokens per expansion is
-enough for a sentence fragment and cuts total probe time to ~1.3s.
+Drop the per-token completeWord fan-out from the initial fetch: tokens
+above the probability cutoff render directly (firstWord of the
+fragment). The trigger-to-strip path is now a single ~100ms topTokens
+request instead of 1 + N requests, to evaluate typing feel. Fragments
+may be partial words ("Fr" for "France") — deliberate tradeoff for now;
+completeWord stays in llama.ts, unit-tested, in case it returns.
 
 Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
