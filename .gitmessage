@@ -1,21 +1,11 @@
-feat(candidates): probability-sorted strip with cutoff; deepening off by default
+feat(scripts): add probe CLI to test texts against the llama endpoint
 
-- llama.ts: parseTopTokens now returns {token, prob} sorted descending
-  (handles prob and logprob fields); mergeCandidates merges duplicate
-  words by summing probabilities and re-sorts.
-- controller.ts: tokens below the probability cutoff (setting, default
-  1%) are dropped before any completion request is spent; Candidate
-  carries prob end to end. Default maxDepth is now 1 = idle deepening
-  disabled until the single-word flow is tuned.
-- strip.ts/styles.css: candidates render vertically, one per line, with
-  the probability in brackets, e.g. "France (36%)"; sub-1% shows (<1%).
-- settings.ts: new "Probability cutoff" slider; Max depth documents
-  that 1 disables deepening.
-- tests: unit suite updated for weighted candidates (25 cases), plus
-  opt-in live integration tests (tests/llama-live.test.ts) that hit a
-  real llama-server when LLAMA_ENDPOINT is set and log actual top
-  tokens/completions for debugging model output.
+`npm run probe -- "text"` (or --file / stdin) runs the plugin's real
+pipeline (topTokens -> cutoff -> completeWord -> mergeCandidates)
+outside Obsidian and prints the raw top tokens plus the exact strip
+candidates; --continue also shows the greedy continuation. Options:
+--endpoint (default LLAMA_ENDPOINT or http://127.0.0.1:8081), --n,
+--cutoff. Runs via Node's native TS transform mode, no extra deps.
+scripts/ excluded from eslint like the other dev tooling.
 
-Live test against localhost:8081 shows the Korean-garbage issue is the
-model, not the plugin: gemma-4-26B-A4B-it (an instruct tune) puts 36%
-on Korean tokens for an English prompt. A base model is required.
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
